@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2022 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2023 Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2019, 2022 IBM Corporation. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -88,7 +88,7 @@ public class DatasourcePlatform implements Platform {
     protected String endDelimiter = null;
 
     /** Ensures that only one thread at a time can add/remove sequences */
-    protected Object sequencesLock = new Boolean(true);
+    protected Object sequencesLock = Boolean.valueOf(true);
 
     /** If the native sequence type is not supported, if table sequencing should be used. */
     protected boolean defaultNativeSequenceToTable;
@@ -245,6 +245,20 @@ public class DatasourcePlatform implements Platform {
     }
 
     /**
+     * Convert the object to the appropriate type by invoking the appropriate
+     * ConversionManager method.
+     * @param sourceObject the object that must be converted
+     * @param javaClass the class that the object must be converted to
+     * @param session current database session
+     * @exception ConversionException all exceptions will be thrown as this type.
+     * @return the newly converted object
+     */
+    @Override
+    public Object convertObject(Object sourceObject, Class javaClass, AbstractSession session) throws ConversionException {
+        return convertObject(sourceObject, javaClass);
+    }
+
+    /**
      * Copy the state into the new platform.
      */
     @Override
@@ -284,6 +298,13 @@ public class DatasourcePlatform implements Platform {
     @Override
     public void setConversionManager(ConversionManager conversionManager) {
         this.conversionManager = conversionManager;
+    }
+
+    /**
+     * Return the driver version.
+     */
+    public String getDriverVersion() {
+        return "";
     }
 
     /**
@@ -642,6 +663,11 @@ public class DatasourcePlatform implements Platform {
 
     @Override
     public boolean isOracle9() {
+        return false;
+    }
+
+    @Override
+    public boolean isOracle23() {
         return false;
     }
 
@@ -1128,7 +1154,7 @@ public class DatasourcePlatform implements Platform {
      * Override this method if the platform needs to use a custom function based on the DatabaseField
      * @return An expression for the given field set equal to a parameter matching the field
      */
-    public Expression createExpressionFor(DatabaseField field, Expression builder) {
+    public Expression createExpressionFor(DatabaseField field, Expression builder, String fieldClassificationClassName) {
         Expression subExp1 = builder.getField(field);
         Expression subExp2 = builder.getParameter(field);
         return subExp1.equal(subExp2);

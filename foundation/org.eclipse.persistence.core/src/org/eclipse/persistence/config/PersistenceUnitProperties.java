@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2022 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2023 Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 1998, 2022 IBM Corporation. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -178,7 +178,7 @@ public class PersistenceUnitProperties {
      * </ul>
      * <p>
      * <b>Persistence XML example:</b><pre>
-     * {@code <property name="javax.persistence.jdbc.driver" value="com.mysql.jdbc.Driver" />}</pre>
+     * {@code <property name="javax.persistence.jdbc.driver" value="com.mysql.cj.jdbc.Driver" />}</pre>
      * <p>
      * The previous value for this property "<code>eclipselink.jdbc.driver</code>" is now deprecated
      * and should be replaced with this new name.
@@ -3771,7 +3771,7 @@ public class PersistenceUnitProperties {
      *    ("memberPu2" -> (
      *       "javax.persistence.jdbc.user" -> "user2",
      *       "javax.persistence.jdbc.password" -> "password2",
-     *       "javax.persistence.jdbc.driver" -> "com.mysql.jdbc.Driver",
+     *       "javax.persistence.jdbc.driver" -> "com.mysql.cj.jdbc.Driver",
      *       "javax.persistence.jdbc.url" -> "jdbc:mysql://my_sql_db_url:3306/user2"
      *    )
      *  )}</pre>
@@ -4151,6 +4151,39 @@ public class PersistenceUnitProperties {
      * </p>
      */
     public static final String CONCURRENCY_SEMAPHORE_LOG_TIMEOUT = "eclipselink.concurrency.semaphore.log.timeout";
+
+    /**
+     * <p>
+     * This property control (enable/disable) query result cache validation in {@link org.eclipse.persistence.internal.sessions.UnitOfWorkImpl#internalExecuteQuery}
+     * </p>
+     * This can be used to help debugging an object identity problem. An object identity problem is when an managed/active entity in the cache references an entity not in managed state.
+     * This method will validate that objects in query results (object tree) are in a correct state. As a result there are new log messages in the log.
+     * It's related with "read" queries like <code>em.find(...);</code> or JPQL queries like <code>SELECT e FROM Entity e</code>.
+     * It should be controlled at query level too by query hint {@link org.eclipse.persistence.config.QueryHints#QUERY_RESULTS_CACHE_VALIDATION}
+     * <ul>
+     * <li>"<code>true</code>" - validate query result object tree and if content is not valid print diagnostic messages. In this case there should be negative impact to the performance.
+     * <li>"<code>false</code>" (DEFAULT) - don't validate and print any diagnostic messages
+     * </ul>
+     */
+    public static final String QUERY_RESULTS_CACHE_VALIDATION = "eclipselink.query-results-cache.validation";
+
+    /**
+     * The "<code>eclipselink.login.encryptor</code>" property configures a custom implementation of
+     * {@link org.eclipse.persistence.security.Securable} class used to encrypt and decrypt database password
+     * loaded from "<code>jakarta.persistence.jdbc.password</code>" property.
+     * Usage of this property avoids limitation of {@link SessionCustomizer} which is called when all other
+     * properties have been processed (too late when database login needs to be configured).
+     * If this property is not specified {@link org.eclipse.persistence.internal.security.JCEEncryptor} as a default encryptor is used.
+     * <p>
+     * <b>Allowed Values:</b>
+     * <ul>
+     * <li>the fully qualified name for a class that implements {@link org.eclipse.persistence.security.Securable} interface
+     * </ul>
+     *
+     * @see org.eclipse.persistence.security.Securable
+     * @see org.eclipse.persistence.internal.security.JCEEncryptor
+     */
+    public static final String LOGIN_ENCRYPTOR = "eclipselink.login.encryptor";
 
     /**
      * INTERNAL: The following properties will not be displayed through logging

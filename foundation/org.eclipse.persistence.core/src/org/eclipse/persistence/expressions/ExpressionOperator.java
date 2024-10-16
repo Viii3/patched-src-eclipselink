@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2022 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2024 Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2018, 2022 IBM Corporation. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -802,7 +802,7 @@ public class ExpressionOperator implements Serializable {
         operator.databaseStrings = databaseStrings == null ? null : Helper.copyStringArray(databaseStrings);
         operator.argumentIndices = argumentIndices == null ? null : Helper.copyIntArray(argumentIndices);
         operator.javaStrings = javaStrings == null ? null : Helper.copyStringArray(javaStrings);
-        operator.isBindingSupported = isBindingSupported == null ? null : new Boolean(isBindingSupported);
+        operator.isBindingSupported = isBindingSupported == null ? null : Boolean.valueOf(isBindingSupported);
     }
 
     /**
@@ -2390,8 +2390,7 @@ public class ExpressionOperator implements Serializable {
         }
 
         String[] dbStrings = getDatabaseStrings(items.size());
-        for (int i = 0; i < indices.length; i++) {
-            final int index = indices[i];
+        for (final int index : this.argumentIndices) {
             Expression item = items.get(index);
             if ((this.selector == Ref) || ((this.selector == Deref) && (item.isObjectExpression()))) {
                 DatabaseTable alias = ((ObjectExpression)item).aliasForTable(((ObjectExpression)item).getDescriptor().getTables().firstElement());

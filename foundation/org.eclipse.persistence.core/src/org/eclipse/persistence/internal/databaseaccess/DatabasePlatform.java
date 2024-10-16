@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2022 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2023 Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 1998, 2022 IBM Corporation. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -97,6 +97,8 @@ import org.eclipse.persistence.platform.database.partitioning.DataPartitioningCa
 import org.eclipse.persistence.queries.Call;
 import org.eclipse.persistence.queries.DataReadQuery;
 import org.eclipse.persistence.queries.DatabaseQuery;
+import org.eclipse.persistence.queries.ObjectBuildingQuery;
+import org.eclipse.persistence.queries.ReadQuery;
 import org.eclipse.persistence.queries.ReportQuery;
 import org.eclipse.persistence.queries.SQLCall;
 import org.eclipse.persistence.queries.StoredProcedureCall;
@@ -2351,11 +2353,16 @@ public class DatabasePlatform extends DatasourcePlatform {
      * By default most platforms put inner joins in the WHERE clause.
      * If set to false, inner joins will be printed in the FROM clause.
      */
-    public boolean shouldPrintInnerJoinInWhereClause() {
-        if (this.printInnerJoinInWhereClause == null) {
-            return true;
+    public boolean shouldPrintInnerJoinInWhereClause(ReadQuery query) {
+        Boolean printInnerJoinInWhereClauseQueryHint = ((query != null) && (query instanceof ObjectBuildingQuery)) ? ((ObjectBuildingQuery)query).printInnerJoinInWhereClause() : null;
+        if (printInnerJoinInWhereClauseQueryHint != null) {
+            return printInnerJoinInWhereClauseQueryHint;
+        } else {
+            if (this.printInnerJoinInWhereClause == null) {
+                return true;
+            }
+            return this.printInnerJoinInWhereClause;
         }
-        return this.printInnerJoinInWhereClause;
     }
 
     /**
@@ -3224,7 +3231,7 @@ public class DatabasePlatform extends DatasourcePlatform {
              // By default use the JDBC isValid API unless a ping SQL has been set.
              // The ping SQL is set by most platforms, but user could set to null to used optimized JDBC check if desired.
              try {
-                 return connection.isValid(IS_VALID_TIMEOUT);
+                 return !connection.isValid(IS_VALID_TIMEOUT);
              } catch (Throwable failed) {
                  // Catch throwable as old JDBC drivers may not support isValid.
                  return false;

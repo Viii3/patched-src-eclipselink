@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2022 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2023 Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 1998, 2022 IBM Corporation. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -473,6 +473,7 @@ public class EntityManagerSetupImpl implements MetadataRefreshListener {
         this.persistenceUnitUniqueName = persistenceUnitUniqueName;
         this.sessionName = sessionName;
         this.requiresConnection = true;
+        this.securableObjectHolder.setSessionName(sessionName);
     }
 
     public EntityManagerSetupImpl() {
@@ -1456,6 +1457,8 @@ public class EntityManagerSetupImpl implements MetadataRefreshListener {
         if ((queryCache != null) && queryCache.equalsIgnoreCase("true")) {
             session.getProject().setDefaultQueryResultsCachePolicy(new QueryResultsCachePolicy());
         }
+        String queryCacheForceDeferredLocks = getConfigPropertyAsStringLogDebug(PersistenceUnitProperties.CACHE_QUERY_FORCE_DEFERRED_LOCKS, m, session);
+        session.getProject().setQueryCacheForceDeferredLocks("true".equalsIgnoreCase(queryCacheForceDeferredLocks));
 
         Map typeMap = PropertiesHandler.getPrefixValuesLogDebug(PersistenceUnitProperties.CACHE_TYPE_, m, session);
         Map sizeMap = PropertiesHandler.getPrefixValuesLogDebug(PersistenceUnitProperties.CACHE_SIZE_, m, session);
@@ -1463,8 +1466,6 @@ public class EntityManagerSetupImpl implements MetadataRefreshListener {
         if(typeMap.isEmpty() && sizeMap.isEmpty() && sharedMap.isEmpty()) {
             return;
         }
-        String queryCacheForceDeferredLocks = getConfigPropertyAsStringLogDebug(PersistenceUnitProperties.CACHE_QUERY_FORCE_DEFERRED_LOCKS, m, session);
-        session.getProject().setQueryCacheForceDeferredLocks("true".equalsIgnoreCase(queryCacheForceDeferredLocks));
 
         String defaultTypeName = (String)typeMap.remove(PersistenceUnitProperties.DEFAULT);
         if (defaultTypeName != null) {
@@ -2465,6 +2466,11 @@ public class EntityManagerSetupImpl implements MetadataRefreshListener {
             login.setProperty(property, value);
         }
 
+        String encryptionClassName = getConfigPropertyAsStringLogDebug(PersistenceUnitProperties.LOGIN_ENCRYPTOR, m, this.session);
+        if (encryptionClassName != null) {
+            this.securableObjectHolder.setEncryptionClassName(encryptionClassName);
+            login.setEncryptionClassName(encryptionClassName);
+        }
         // Note: This call does not checked the stored persistenceUnitInfo or extended properties because
         // the map passed into this method should represent the full set of properties we expect to process
 
@@ -2849,6 +2855,7 @@ public class EntityManagerSetupImpl implements MetadataRefreshListener {
             updateAllowExtendedThreadLogging(m);
             updateAllowExtendedThreadLoggingThreadDump(m);
             updateTemporalMutableSetting(m);
+            updateAllowQueryResultsCacheValidation(m);
             updateTableCreationSettings(m);
             updateIndexForeignKeys(m);
             if (!session.hasBroker()) {
@@ -3956,6 +3963,24 @@ public class EntityManagerSetupImpl implements MetadataRefreshListener {
                 session.getProject().setAllowExtendedThreadLoggingThreadDump(false);
             } else {
                 session.handleException(ValidationException.invalidBooleanValueForProperty(allowExtendedThreadLoggingThreadDump, PersistenceUnitProperties.THREAD_EXTENDED_LOGGING_THREADDUMP));
+            }
+        }
+    }
+
+    /**
+     * Enable or disable query result cache validation.
+     * The method needs to be called in deploy stage.
+     */
+    protected void updateAllowQueryResultsCacheValidation(Map m){
+        String allowQueryResultsCacheValidation = EntityManagerFactoryProvider.getConfigPropertyAsStringLogDebug(PersistenceUnitProperties.QUERY_RESULTS_CACHE_VALIDATION, m, session);
+
+        if (allowQueryResultsCacheValidation != null) {
+            if (allowQueryResultsCacheValidation.equalsIgnoreCase("true")) {
+                session.getProject().setAllowQueryResultsCacheValidation(true);
+            } else if (allowQueryResultsCacheValidation.equalsIgnoreCase("false")) {
+                session.getProject().setAllowQueryResultsCacheValidation(false);
+            } else {
+                session.handleException(ValidationException.invalidBooleanValueForProperty(allowQueryResultsCacheValidation, PersistenceUnitProperties.QUERY_RESULTS_CACHE_VALIDATION));
             }
         }
     }

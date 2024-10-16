@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2021 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2023 Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2021 IBM Corporation. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -162,6 +162,9 @@ public class Project extends CoreProject<ClassDescriptor, Login, DatabaseSession
     /** Flag that allows add to extended thread logging output thread stack trace or not.*/
     protected boolean allowExtendedThreadLoggingThreadDump = false;
 
+    /** Flag that allows query result cache validation or not.*/
+    protected boolean allowQueryResultsCacheValidation = false;
+
     /** Flag that allows call deferral to be disabled */
     protected boolean allowSQLDeferral = true;
 
@@ -190,7 +193,7 @@ public class Project extends CoreProject<ClassDescriptor, Login, DatabaseSession
     protected Map<String, PartitioningPolicy> partitioningPolicies;
 
     /** Ensures that only one thread at a time can add/remove descriptors */
-    protected Object descriptorsLock = new Boolean(true);
+    protected Object descriptorsLock = Boolean.valueOf(true);
 
     /** VPD connection settings */
     protected String vpdIdentifier;
@@ -1392,6 +1395,14 @@ public class Project extends CoreProject<ClassDescriptor, Login, DatabaseSession
     }
 
     /**
+     * INTERNAL:
+     * Flag that allows query result cache validation or not. If true result is presented via log messages.
+     */
+    public boolean isAllowQueryResultsCacheValidation() {
+        return allowQueryResultsCacheValidation;
+    }
+
+    /**
      * PUBLIC:
      * Return the descriptor for  the alias
      */
@@ -1453,6 +1464,14 @@ public class Project extends CoreProject<ClassDescriptor, Login, DatabaseSession
      */
     public void setAllowExtendedThreadLoggingThreadDump(boolean allowExtendedThreadLoggingThreadDump) {
         this.allowExtendedThreadLoggingThreadDump = allowExtendedThreadLoggingThreadDump;
+    }
+
+    /**
+     * INTERNAL:
+     * Set to true to enable query result cache validation or not. Result is presented via log messages.
+     */
+    public void setAllowQueryResultsCacheValidation(boolean allowQueryResultsCacheValidation) {
+        this.allowQueryResultsCacheValidation = allowQueryResultsCacheValidation;
     }
 
     /**

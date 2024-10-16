@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2019 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2023 Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2019 IBM Corporation. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -181,6 +181,21 @@ public class QueryHints {
      * @see org.eclipse.persistence.queries.QueryResultsCachePolicy#setCacheInvalidationPolicy(org.eclipse.persistence.descriptors.invalidation.CacheInvalidationPolicy)
      */
     public static final String QUERY_RESULTS_CACHE_EXPIRY_TIME_OF_DAY = "eclipselink.query-results-cache.expiry-time-of-day";
+
+    /**
+     * <p>
+     * This property control (enable/disable) query result cache validation in {@link org.eclipse.persistence.internal.sessions.UnitOfWorkImpl#internalExecuteQuery}
+     * </p>
+     * This can be used to help debugging an object identity problem. An object identity problem is when an managed/active entity in the cache references an entity not in managed state.
+     * This method will validate that objects in query results are in a correct state. As a result there are new log messages in the log.
+     * It's related with "read" queries like <code>em.find(...);</code> or JPQL queries like <code>SELECT e FROM Entity e</code>.
+     * It should be controlled at persistence unit level too by persistence unit property {@link org.eclipse.persistence.config.PersistenceUnitProperties#QUERY_RESULTS_CACHE_VALIDATION}
+     * <ul>
+     * <li>"<code>true</code>" - validate query result object tree and if content is not valid print diagnostic messages. In this case there should be negative impact to the performance.
+     * <li>"<code>false</code>" (DEFAULT) - don't validate and print any diagnostic messages
+     * </ul>
+     */
+    public static final String QUERY_RESULTS_CACHE_VALIDATION = "eclipselink.query-results-cache.validation";
 
     /**
      * "eclipselink.query.redirector"
@@ -917,4 +932,13 @@ public class QueryHints {
      * @see org.eclipse.persistence.queries.ResultSetMappingQuery#shouldReturnNameValuePairs()
      */
     public static final String RETURN_NAME_VALUE_PAIRS = "eclipselink.query-return-name-value-pairs";
+
+    /**
+     * "eclipselink.inner-join-in-where-clause"
+     * <p>Changes the way that inner joins are printed in generated SQL for the database.
+     * With a value of true, inner joins are printed in the WHERE clause, if false, inner joins are printed in the FROM clause.
+     * This query hint should override global/session switch {@link org.eclipse.persistence.internal.databaseaccess.DatabasePlatform#setPrintInnerJoinInWhereClause(boolean)}
+     * @see org.eclipse.persistence.internal.databaseaccess.DatabasePlatform#setPrintInnerJoinInWhereClause(boolean)
+     */
+    public static final String INNER_JOIN_IN_WHERE_CLAUSE = "eclipselink.inner-join-in-where-clause";
 }

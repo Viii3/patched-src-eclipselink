@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2021 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2023 Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2019 IBM Corporation. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -154,6 +154,11 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
     protected Map<Object, Object> cloneMapping;
     protected Map<Object, Object> newObjectsCloneToOriginal;
     protected Map<Object, Object> newObjectsOriginalToClone;
+
+    /**
+     * Map of primary key to list of new objects. Used to speedup in-memory querying.
+     */
+    protected Map<Object, IdentityHashSet>        primaryKeyToNewObjects;
     /**
      * Stores a map from the clone to the original merged object, as a different instance is used as the original for merges.
      */
@@ -540,6 +545,9 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
             ObjectBuilder builder = descriptor.getObjectBuilder();
             try {
                 value = builder.assignSequenceNumber(object, this);
+                getPrimaryKeyToNewObjects().putIfAbsent(value,
+                    new IdentityHashSet());
+                getPrimaryKeyToNewObjects().get(value).add(object);
             } catch (RuntimeException exception) {
                 handleException(exception);
             } finally {
@@ -576,6 +584,7 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
         }
         if (hasNewObjects()) {
             assignSequenceNumbers(getNewObjectsCloneToOriginal());
+            setupPrimaryKeyToNewObjects();
         }
     }
 
@@ -699,8 +708,9 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
 
         // Second calculate changes for all registered objects.
         Iterator objects = allObjects.keySet().iterator();
-        Map changedObjects = new IdentityHashMap();
-        Map visitedNodes = new IdentityHashMap();
+        int allObjectsSize = allObjects.size();
+        Map changedObjects = new IdentityHashMap(allObjectsSize);
+        Map visitedNodes = new IdentityHashMap(allObjectsSize);
         while (objects.hasNext()) {
             Object object = objects.next();
 
@@ -776,7 +786,7 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
 
         if (this.shouldDiscoverNewObjects && !changedObjects.isEmpty()) {
             // Third discover any new objects from the new or changed objects.
-            Map newObjects = new IdentityHashMap();
+            Map newObjects = new IdentityHashMap(changedObjects.size());
             // Bug 294259 -  Do not replace the existingObjects list
             // Iterate over the changed objects only.
             discoverUnregisteredNewObjects(changedObjects, newObjects, getUnregisteredExistingObjects(), visitedNodes);
@@ -797,8 +807,13 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
         // Remove any orphaned privately owned objects from the UnitOfWork and ChangeSets,
         // these are the objects remaining in the UnitOfWork privateOwnedObjects map
         if (hasPrivateOwnedObjects()) {
-            Map visitedObjects = new IdentityHashMap();
-            for (Set privateOwnedObjects : getPrivateOwnedObjects().values()) {
+            Collection<Set> values = getPrivateOwnedObjects().values();
+            int initialSize = 0;
+            for (Set value: values) {
+                initialSize += value.size();
+            }
+            Map visitedObjects = new IdentityHashMap(initialSize);
+            for (Set privateOwnedObjects : values) {
                 for (Object objectToRemove : privateOwnedObjects) {
                     performRemovePrivateOwnedObjectFromChangeSet(objectToRemove, visitedObjects);
                 }
@@ -882,8 +897,9 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
                 }
 
                 // Has already been cloned.
-                if (!this.isObjectDeleted(objectFromCache))
-                    return objectFromCache;
+                if (!this.isObjectDeleted(objectFromCache)) {
+                  return objectFromCache;
+                }
             }
             // This is a case where the object is not in the session cache,
             // so a new cache-key is used as there is no original to use for locking.
@@ -2392,6 +2408,18 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
 
     /**
      * INTERNAL:
+     * The primaryKeyToNewObjects stores a list of objects for every primary key.
+     * It is used to speed up in-memory-querying.
+     */
+    public Map<Object, IdentityHashSet> getPrimaryKeyToNewObjects() {
+      if (primaryKeyToNewObjects == null) {
+        primaryKeyToNewObjects = new HashMap<>();
+      }
+      return primaryKeyToNewObjects;
+    }
+
+    /**
+     * INTERNAL:
      * The stores a map from new object clones to the original object used from merge.
      */
     public Map getNewObjectsCloneToMergeOriginal() {
@@ -2540,17 +2568,14 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
         boolean readSubclassesOrNoInheritance = (!descriptor.hasInheritance() || descriptor.getInheritancePolicy().shouldReadSubclasses());
 
         ObjectBuilder objectBuilder = descriptor.getObjectBuilder();
-        for (Iterator newObjectsEnum = getNewObjectsCloneToOriginal().keySet().iterator();
-                 newObjectsEnum.hasNext();) {
-            Object object = newObjectsEnum.next();
-            // bug 327900
-            if ((object.getClass() == theClass) || (readSubclassesOrNoInheritance && (theClass.isInstance(object)))) {
-                Object primaryKey = objectBuilder.extractPrimaryKeyFromObject(object, this, true);
-                if ((primaryKey != null) && primaryKey.equals(selectionKey)) {
-                    return object;
-                }
-            }
-        }
+        for (Iterator newObjectsEnum = getPrimaryKeyToNewObjects().getOrDefault(selectionKey, new IdentityHashSet(0)).iterator();
+            newObjectsEnum.hasNext(); ) {
+           Object object = newObjectsEnum.next();
+           // bug 327900
+           if ((object.getClass() == theClass) || (readSubclassesOrNoInheritance && (theClass.isInstance(object)))) {
+                   return object;
+           }
+         }
         return null;
     }
 
@@ -3003,7 +3028,27 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
         }
         Object result = query.executeInUnitOfWork(this, databaseRow);
         executeDeferredEvents();
+        if (query instanceof ReadQuery && (project.isAllowQueryResultsCacheValidation() || ((ReadQuery)query).shouldAllowQueryResultsCacheValidation())) {
+            validateObjectTree(result);
+        }
         return result;
+    }
+
+    private void validateObjectTree(Object startNode) {
+        log(SessionLog.INFO, SessionLog.TRANSACTION, "validate_object_space");
+        // This defines an inner class for process the iteration operation, don't be scared, it's just an inner class.
+        DescriptorIterator iterator = new DescriptorIterator() {
+            @Override
+            public void iterate(Object object) {
+                if (object != null && !isObjectRegistered(object) && getVisitedStack() != null && getVisitedStack().size() > 0) {
+                    log(SessionLog.WARNING, SessionLog.CACHE, "stack_of_visited_objects_that_refer_to_the_corrupt_object", getVisitedStack());
+                    log(SessionLog.WARNING, SessionLog.CACHE, "corrupt_object_referenced_through_mapping", getCurrentMapping());
+                    log(SessionLog.WARNING, SessionLog.CACHE, "corrupt_object", object);
+                }
+            }
+        };
+        iterator.setSession(this);
+        iterator.startIterationOn(startNode);
     }
 
     /**
@@ -3837,6 +3882,7 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
                     Object referenceObjectToRemove = getNewObjectsCloneToOriginal().get(removedObject);
                     if (referenceObjectToRemove != null) {
                         getNewObjectsCloneToOriginal().remove(removedObject);
+                        removeObjectFromPrimaryKeyToNewObjects(removedObject);
                         getNewObjectsOriginalToClone().remove(referenceObjectToRemove);
                     }
                 }
@@ -4456,6 +4502,7 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
         registerNewObjectInIdentityMap(clone, original, descriptor);
 
         getNewObjectsCloneToOriginal().put(clone, original);
+        addNewObjectToPrimaryKeyToNewObjects(clone, descriptor);
         if (original != null) {
             getNewObjectsOriginalToClone().put(original, clone);
         }
@@ -4977,6 +5024,75 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
      */
     protected void setNewObjectsCloneToOriginal(Map newObjects) {
         this.newObjectsCloneToOriginal = newObjects;
+        setupPrimaryKeyToNewObjects();
+      }
+
+      /**
+       * INTERNAL:
+       * Create the map of primary key to new objects to speed up in-memory querying.
+       */
+      protected void setupPrimaryKeyToNewObjects() {
+        primaryKeyToNewObjects = null;
+        if (hasNewObjects()) {
+            Map newObjects = getNewObjectsCloneToOriginal();
+            primaryKeyToNewObjects = new HashMap<>(newObjects.size());
+            newObjects.forEach((object, o2) -> {
+            addNewObjectToPrimaryKeyToNewObjects(object);
+          });
+        }
+      }
+
+      /**
+       * INTERNAL:
+       * Extracts the primary key from a new object and puts it in primaryKeyToNewObjects.
+       */
+      protected void addNewObjectToPrimaryKeyToNewObjects(Object newObject) {
+        ClassDescriptor descriptor = getDescriptor(newObject.getClass());
+        addNewObjectToPrimaryKeyToNewObjects(newObject, descriptor);
+      }
+
+      /**
+       * INTERNAL:
+       * Extracts the primary key from a new object and puts it in primaryKeyToNewObjects.
+       * Allows passing of the ClassDescriptor.
+       */
+      protected void addNewObjectToPrimaryKeyToNewObjects(Object newObject,
+          ClassDescriptor descriptor) {
+        ObjectBuilder objectBuilder = descriptor.getObjectBuilder();
+        Object pk = objectBuilder.extractPrimaryKeyFromObject(newObject, this,
+            true);
+        if (pk != null) {
+          getPrimaryKeyToNewObjects().putIfAbsent(pk, new IdentityHashSet());
+          getPrimaryKeyToNewObjects().get(pk).add(newObject);
+        }
+      }
+
+      /**
+       * INTERNAL:
+       * Extracts the primary key and removes an object from primaryKeyToNewObjects.
+       */
+      protected void removeObjectFromPrimaryKeyToNewObjects(Object object) {
+        ClassDescriptor descriptor = getDescriptor(object.getClass());
+        ObjectBuilder objectBuilder = descriptor.getObjectBuilder();
+        Object pk = objectBuilder.extractPrimaryKeyFromObject(object, this,
+            true);
+        removeObjectFromPrimaryKeyToNewObjects(object, pk);
+      }
+
+      /**
+       * INTERNAL:
+       * Removes an object from primaryKeyToNewObjects.
+       */
+      protected void removeObjectFromPrimaryKeyToNewObjects(Object object,
+          Object primaryKey) {
+        Map<Object, IdentityHashSet> pkToNewObjects = getPrimaryKeyToNewObjects();
+        if (pkToNewObjects.containsKey(primaryKey)) {
+          IdentityHashSet newObjects = pkToNewObjects.get(primaryKey);
+          newObjects.remove(object);
+          if (newObjects.isEmpty()) {
+            pkToNewObjects.remove(primaryKey);
+          }
+        }
     }
 
     /**
@@ -5436,6 +5552,7 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
             }
             this.newObjectsCloneToOriginal = null;
             this.newObjectsOriginalToClone = null;
+            this.primaryKeyToNewObjects = null;
         }
         this.unregisteredExistingObjects = null;
         this.unregisteredNewObjects = null;
@@ -5556,6 +5673,7 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
                 // PERF: Avoid initialization of new objects if none.
                 if (hasNewObjects()) {
                     Object original = getNewObjectsCloneToOriginal().remove(object);
+                    removeObjectFromPrimaryKeyToNewObjects(object, primaryKey);
                     if (original != null) {
                         getNewObjectsOriginalToClone().remove(original);
                     }
@@ -5746,10 +5864,10 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
             throw ValidationException.writeChangesOnNestedUnitOfWork();
         }
         log(SessionLog.FINER, SessionLog.TRANSACTION, "begin_unit_of_work_flush");
-        mergeBmpAndWsEntities();
-        if (this.eventManager != null) {
-            this.eventManager.preCommitUnitOfWork();
+        if(eventManager != null) {
+            eventManager.preFlushUnitOfWork();
         }
+        mergeBmpAndWsEntities();
         setLifecycle(CommitPending);
         try {
             commitToDatabaseWithChangeSet(false);
@@ -5761,6 +5879,9 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
         }
         setLifecycle(CommitTransactionPending);
         log(SessionLog.FINER, SessionLog.TRANSACTION, "end_unit_of_work_flush");
+        if(eventManager != null) {
+            eventManager.postFlushUnitOfWork();
+        }
     }
 
     /**
@@ -5918,6 +6039,7 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
         this.cloneMapping = null;
         this.newObjectsCloneToOriginal = null;
         this.newObjectsOriginalToClone = null;
+        this.primaryKeyToNewObjects = null;
         this.deletedObjects = null;
         this.allClones = null;
         this.objectsDeletedDuringCommit = null;
@@ -5999,7 +6121,9 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
      * This method is used internally to create a map to hold the persistenceContexts.  A weak map is returned if ReferenceMode is weak.
      */
     protected Map createMap(){
-        if (this.referenceMode != null && this.referenceMode != ReferenceMode.HARD) return new IdentityWeakHashMap();
+        if (this.referenceMode != null && this.referenceMode != ReferenceMode.HARD) {
+          return new IdentityWeakHashMap();
+        }
         return new IdentityHashMap();
     }
     /**
@@ -6008,7 +6132,9 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
      *  @param size
      */
     protected Map createMap(int size){
-        if (this.referenceMode != null && this.referenceMode != ReferenceMode.HARD) return new IdentityWeakHashMap(size);
+        if (this.referenceMode != null && this.referenceMode != ReferenceMode.HARD) {
+          return new IdentityWeakHashMap(size);
+        }
         return new IdentityHashMap(size);
     }
     /**
@@ -6018,7 +6144,9 @@ public class UnitOfWorkImpl extends AbstractSession implements org.eclipse.persi
 
     protected Map cloneMap(Map map){
         // bug 270413.  This method is needed to avoid the class cast exception when the reference mode is weak.
-        if (this.referenceMode != null && this.referenceMode != ReferenceMode.HARD) return (IdentityWeakHashMap)((IdentityWeakHashMap)map).clone();
+        if (this.referenceMode != null && this.referenceMode != ReferenceMode.HARD) {
+          return (IdentityWeakHashMap)((IdentityWeakHashMap)map).clone();
+        }
         return (IdentityHashMap)((IdentityHashMap)map).clone();
     }
 

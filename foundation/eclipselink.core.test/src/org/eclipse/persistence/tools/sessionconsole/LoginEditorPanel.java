@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2018 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2023 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -3031,7 +3031,7 @@ public class LoginEditorPanel extends JPanel implements javax.swing.event.CaretL
         getDriverChoice().addItem("com.oracle.ias.jdbc.sqlserver.SQLServerDriver");
         getDriverChoice().addItem("com.microsoft.jdbc.sqlserver.SQLServerDriver");
         getDriverChoice().addItem("weblogic.jdbc.mssqlserver4.Driver");
-        getDriverChoice().addItem("com.mysql.jdbc.Driver");
+        getDriverChoice().addItem("com.mysql.cj.jdbc.Driver");
         getDriverChoice().addItem("sun.jdbc.odbc.JdbcOdbcDriver");
         getDriverChoice().addItem("com.fujitsu.symfoware.jdbc.SYMDriver");
 
@@ -3078,7 +3078,7 @@ public class LoginEditorPanel extends JPanel implements javax.swing.event.CaretL
         getSequenceCounterNameText().setEnabled(!getNativeSequencingCheckbox().isSelected());
         getSequenceFieldNameText().setEnabled(!getNativeSequencingCheckbox().isSelected());
         getSequenceTableNameText().setEnabled(!getNativeSequencingCheckbox().isSelected());
-        getSequencePreallocationSizeText().setText(new Integer(getLogin().getDefaultSequence().getPreallocationSize()).toString());
+        getSequencePreallocationSizeText().setText(Integer.valueOf(getLogin().getDefaultSequence().getPreallocationSize()).toString());
     }
 
     public void resetStringButtons() {
